@@ -7,10 +7,10 @@ type KitchenOrder = {
   studentName: string;
   studentPhoto: string;
   items: string[];
-  status: 'PENDING' | 'PREPARING' | 'READY' | 'PICKED_UP';
+  status: 'PENDING' | 'PREPARING' | 'READY';
 };
 
-const mockSocketFeed: KitchenOrder[] = [
+const initialOrders: KitchenOrder[] = [
   {
     id: 'o-1001',
     studentName: 'Ana Souza',
@@ -18,20 +18,45 @@ const mockSocketFeed: KitchenOrder[] = [
     items: ['Hambúrguer', 'Suco Natural'],
     status: 'PENDING',
   },
-  {
-    id: 'o-1002',
-    studentName: 'Pedro Lima',
-    studentPhoto: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&h=120&fit=crop',
-    items: ['Wrap Integral'],
-    status: 'PREPARING',
-  },
 ];
 
 export function KitchenDisplay() {
-  const [orders, setOrders] = useState<KitchenOrder[]>(mockSocketFeed);
+  const [orders, setOrders] = useState<KitchenOrder[]>(initialOrders);
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const socket = new WebSocket('wss://example-kds-feed.local');
+
+    socket.addEventListener('message', (event) => {
+      try {
+        const payload = JSON.parse(event.data) as {
+          event: 'order:paid' | 'order:status';
+          data: KitchenOrder | { orderId: string; status: KitchenOrder['status'] };
+        };
+
+        if (payload.event === 'order:paid') {
+          const paidOrder = payload.data as KitchenOrder;
+          setOrders((prev) => [{ ...paidOrder, status: 'PENDING' }, ...prev]);
+        }
+
+        if (payload.event === 'order:status') {
+          const statusPayload = payload.data as { orderId: string; status: KitchenOrder['status'] };
+          setOrders((prev) =>
+            prev.map((order) =>
+              order.id === statusPayload.orderId
+                ? {
+                    ...order,
+                    status: statusPayload.status,
+                  }
+                : order,
+            ),
+          );
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    });
+
+    const fallback = setInterval(() => {
       setOrders((prev) =>
         prev.map((order) => {
           if (order.status === 'PENDING') return { ...order, status: 'PREPARING' };
@@ -39,16 +64,19 @@ export function KitchenDisplay() {
           return order;
         }),
       );
-    }, 8000);
+    }, 9000);
 
-    return () => clearInterval(interval);
+    return () => {
+      socket.close();
+      clearInterval(fallback);
+    };
   }, []);
 
   const columns = useMemo(
     () => ({
-      PENDING: orders.filter((o) => o.status === 'PENDING'),
-      PREPARING: orders.filter((o) => o.status === 'PREPARING'),
-      READY: orders.filter((o) => o.status === 'READY'),
+      PENDING: orders.filter((order) => order.status === 'PENDING'),
+      PREPARING: orders.filter((order) => order.status === 'PREPARING'),
+      READY: orders.filter((order) => order.status === 'READY'),
     }),
     [orders],
   );
