@@ -10,51 +10,42 @@ type KitchenOrder = {
   status: 'PENDING' | 'PREPARING' | 'READY';
 };
 
-const initialOrders: KitchenOrder[] = [
-  {
-    id: 'o-1001',
-    studentName: 'Ana Souza',
-    studentPhoto: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=120&h=120&fit=crop',
-    items: ['Hambúrguer', 'Suco Natural'],
-    status: 'PENDING',
-  },
-];
+const initialOrders: KitchenOrder[] = [];
 
 export function KitchenDisplay() {
   const [orders, setOrders] = useState<KitchenOrder[]>(initialOrders);
 
   useEffect(() => {
-    const socket = new WebSocket('wss://example-kds-feed.local');
+    const endpoint = process.env.NEXT_PUBLIC_KDS_WS_URL ?? 'ws://localhost:4000/ws/kds';
+    let socket: WebSocket | null = null;
 
-    socket.addEventListener('message', (event) => {
-      try {
-        const payload = JSON.parse(event.data) as {
-          event: 'order:paid' | 'order:status';
-          data: KitchenOrder | { orderId: string; status: KitchenOrder['status'] };
-        };
+    try {
+      socket = new WebSocket(endpoint);
+      socket.addEventListener('message', (event) => {
+        try {
+          const payload = JSON.parse(event.data) as {
+            event: 'order:paid' | 'order:status';
+            data: KitchenOrder | { orderId: string; status: KitchenOrder['status'] };
+          };
 
-        if (payload.event === 'order:paid') {
-          const paidOrder = payload.data as KitchenOrder;
-          setOrders((prev) => [{ ...paidOrder, status: 'PENDING' }, ...prev]);
+          if (payload.event === 'order:paid') {
+            const paidOrder = payload.data as KitchenOrder;
+            setOrders((prev) => [{ ...paidOrder, status: 'PENDING' }, ...prev]);
+          }
+
+          if (payload.event === 'order:status') {
+            const statusPayload = payload.data as { orderId: string; status: KitchenOrder['status'] };
+            setOrders((prev) =>
+              prev.map((order) => (order.id === statusPayload.orderId ? { ...order, status: statusPayload.status } : order)),
+            );
+          }
+        } catch {
+          // ignore malformed messages
         }
-
-        if (payload.event === 'order:status') {
-          const statusPayload = payload.data as { orderId: string; status: KitchenOrder['status'] };
-          setOrders((prev) =>
-            prev.map((order) =>
-              order.id === statusPayload.orderId
-                ? {
-                    ...order,
-                    status: statusPayload.status,
-                  }
-                : order,
-            ),
-          );
-        }
-      } catch {
-        // ignore malformed messages
-      }
-    });
+      });
+    } catch {
+      // no-op, fallback timer below keeps demo usable
+    }
 
     const fallback = setInterval(() => {
       setOrders((prev) =>
@@ -67,7 +58,7 @@ export function KitchenDisplay() {
     }, 9000);
 
     return () => {
-      socket.close();
+      socket?.close();
       clearInterval(fallback);
     };
   }, []);
@@ -92,7 +83,7 @@ export function KitchenDisplay() {
               {columns[status].map((order) => (
                 <article key={order.id} className="rounded-lg bg-zinc-800 p-3">
                   <div className="flex gap-3 items-center">
-                    <img src={order.studentPhoto} alt={order.studentName} className="w-16 h-16 rounded-full object-cover" />
+                    <img src={order.studentPhoto || '/student-avatar.png'} alt={order.studentName} className="w-16 h-16 rounded-full object-cover" />
                     <div>
                       <p className="font-bold text-lg">{order.studentName}</p>
                       <p className="text-sm text-zinc-300">Pedido: {order.id}</p>

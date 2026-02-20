@@ -1,5 +1,9 @@
 import { Request, Response } from 'express';
 import { WalletService } from '../services/WalletService';
+import { orderEvents } from '../realtime/orderEvents';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 type CreateOrderBody = {
   tenantId: string;
@@ -35,6 +39,21 @@ export class OrderController {
         consumerId,
         items: items ?? [],
       });
+
+      const hydratedOrder = await prisma.order.findUnique({
+        where: { id: order.id },
+        include: { user: true, items: { include: { product: true } } },
+      });
+
+      if (hydratedOrder) {
+        orderEvents.emitOrderPaid({
+          id: hydratedOrder.id,
+          studentName: hydratedOrder.user.name,
+          studentPhoto: hydratedOrder.user.photoUrl ?? '',
+          items: hydratedOrder.items.map((item) => item.product.name),
+          status: 'PENDING',
+        });
+      }
 
       return res.status(201).json(order);
     } catch (error) {
